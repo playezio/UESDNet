@@ -1,0 +1,226 @@
+# UESDNet 基础配置
+# 作者: qzf
+# 模型配置
+model:
+  # 主干网络
+  backbone:
+    type: "UAVResNet50"
+    pretrained: true
+    freeze_backbone: true
+    use_attitude_attention: true  # 启用姿态注意力机制
+    
+  # 特征融合Neck
+  neck:
+    type: "FeatureFusionNeck"
+    num_channels: [256, 512, 1024, 2048]  # 来自backbone的特征通道
+    fusion_channels: 256
+    use_ca: true  # 通道注意力
+    use_sa: true  # 空间注意力
+    use_cross_scale: true  # 跨尺度特征交互
+    
+  # Heads配置
+  heads:
+    detection:
+      num_classes: 8  # STUDataset中的目标类别数
+      num_convs: 2
+      feat_channels: 256
+      anchor_scales: [8]
+      anchor_ratios: [0.5, 1.0, 2.0]
+      
+    segmentation:
+      num_classes: 8  # 包括背景
+      num_convs: 2
+      feat_channels: 256
+      
+  # 整体设置
+  num_classes: 8
+  freeze_backbone: true
+  use_expertsync: true  # 启用专家同步模块
+  
+# 数据设置
+data:
+  # 数据集
+  dataset:
+    type: "STUDataset"
+    root_dir: "/path/to/studataset"  # 修改为你的数据集路径
+    train_split: "train.txt"
+    val_split: "val.txt"
+    test_split: "test.txt"
+    
+  # 数据加载
+  loader:
+    batch_size: 4  # 根据GPU内存调整
+    num_workers: 4
+    shuffle: true
+    pin_memory: true
+    drop_last: true
+    
+  # 数据增强
+  transforms:
+    train:
+      resize: [1024, 1024]
+      random_flip: true
+      random_rotate: true
+      rotate_angle: 10  # 最大旋转角度
+      random_scale: true
+      scale_range: [0.8, 1.2]
+      color_jitter: true
+      brightness: 0.2
+      contrast: 0.2
+      saturation: 0.2
+      
+    val:
+      resize: [1024, 1024]  # 验证时固定尺寸
+      
+  # 姿态信息配置
+  attitude:
+    use_attitude: true
+    normalize_attitude: true
+    min_attitude_range: [-30.0, -30.0, -180.0]
+    max_attitude_range: [30.0, 30.0, 180.0]
+
+# 训练设置
+training:
+  # 优化器
+  optimizer_type: "adam"
+  learning_rate: 0.0001
+  weight_decay: 0.0005
+  momentum: 0.9  # 用于SGD的动量，Adam时无效
+  
+  # 学习率调度
+  scheduler_type: "cosine"
+  total_epochs: 100
+  min_learning_rate: 0.000001  # 最小学习率
+  
+  # 损失函数配置
+  detection_weight: 1.0
+  segmentation_weight: 1.0
+  expert_sync_weight: 0.1
+  
+  # 梯度裁剪配置
+  clip_grad_norm: 1.0
+  
+  # 分阶段训练（经验值）
+  phases:
+    # 第一阶段：冻结backbone，训练其他部分
+    - phase_name: "backbone_frozen"
+      start_epoch: 0
+      end_epoch: 30
+      freeze_backbone: true
+      freeze_neck: false
+      loss_weights:
+        detection: 1.0
+        segmentation: 1.0
+        expert_sync: 0.05
+      
+    # 第二阶段：冻结neck，微调backbone
+    - phase_name: "neck_frozen"
+      start_epoch: 30
+      end_epoch: 60
+      freeze_backbone: false
+      freeze_neck: true
+      loss_weights:
+        detection: 1.0
+        segmentation: 1.0
+        expert_sync: 0.1
+      learning_rate: 0.00005
+      
+    # 第三阶段：所有参数都微调
+    - phase_name: "all_unfrozen"
+      start_epoch: 60
+      end_epoch: 100
+      freeze_backbone: false
+      freeze_neck: false
+      loss_weights:
+        detection: 1.0
+        segmentation: 1.0
+        expert_sync: 0.1
+      learning_rate: 0.00001
+  
+  # 输出配置
+  output_dir: "./outputs/uesdnet"
+  save_interval: 10
+  
+  # 日志配置
+  log_dir: "./logs/uesdnet"
+  log_interval: 10
+  
+  # 其他配置
+  device: "cuda"
+  amp: false  # 自动混合精度训练
+  resume_checkpoint: null
+  
+# 评估配置
+evaluation:
+  # 评估频率
+  eval_interval: 5
+  
+  # 检测评估配置
+  detection:
+    iou_thresholds: [0.5, 0.55, 0.6, 0.65, 0.7, 0.75]
+    max_detections: 100
+    
+  # 分割评估配置
+  segmentation:
+    ignore_index: -1
+    
+  # 保存最佳模型的指标
+  best_metric: "mAP"
+
+# ExpertSync模块配置
+expertsync:
+  enabled: true
+  num_experts: 2  # 检测和分割两个专家模块
+  
+  # 知识蒸馏配置
+  distillation:
+    enabled: true
+    temperature: 4.0
+    weight: 0.5
+    
+  # 专家协同配置
+  coordination:
+    enabled: true
+    weight: 0.1
+    
+  # 同步门控配置
+  sync_gate:
+    enabled: true
+    use_attention: true
+    use_attitude: true
+
+# 推理设置
+inference:
+  confidence_threshold: 0.5  # 检测置信度阈值
+  nms_threshold: 0.45  # NMS阈值
+  max_detections: 100
+  
+  # 可视化配置
+  visualize:
+    enabled: true
+    save_dir: "./visualizations"
+    show_boxes: true
+    show_masks: true
+    show_scores: true
+    color_map: "default"
+
+# 部署相关设置（暂未使用）
+deployment:
+  # ONNX导出配置
+  onnx:
+    enabled: false
+    opset_version: 11
+    dynamic_axes: true
+    export_dir: "./exported_models"
+    
+  # TensorRT配置
+  tensorrt:
+    enabled: false
+    precision: "fp32"
+    workspace_size: 1
+    
+  # 量化配置
+  quantization:
+    enabled: false
+    precision: "int8"
+    calibration_dataset: null

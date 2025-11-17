@@ -1,0 +1,171 @@
+# UESDNet 推理配置
+# 适用于模型推理、评估与可视化
+# 作者: qzf
+# 继承基础配置
+_base_: ./base.yaml
+
+# 模型设置
+model:
+  checkpoint_path: "./outputs/uesdnet/best_checkpoint.pth"  # 模型权重路径
+  device: "cuda"  # 推理设备，也可使用 "cpu"
+  half_precision: true  # 启用半精度推理提升速度
+  
+  # 推理模型配置
+  backbone:
+    pretrained: false  # 推理阶段无需预训练权重
+    use_attitude_attention: true  # 启用姿态注意力机制
+
+# 数据设置
+# 用于推理和评估的数据配置
+data:
+  # 数据集
+  dataset:
+    root_dir: "./data/studataset"  # 数据集根目录
+    test_split: "test.txt"  # 测试集文件列表
+    
+  # 数据加载
+  loader:
+    batch_size: 1  # 推理通常使用单批次
+    num_workers: 2  # 数据加载线程数
+    shuffle: false  # 推理时不需要打乱数据
+    pin_memory: true  # 加速数据传输到GPU
+    drop_last: false  # 不丢弃最后不完整批次
+    
+  # 数据预处理（无增强）
+  transforms:
+    test:
+      resize: [1024, 1024]  # 调整尺寸
+      keep_aspect_ratio: true  # 保持原始长宽比
+      
+  # 姿态信息
+  attitude:
+    use_attitude: true  # 使用姿态信息
+    normalize_attitude: true  # 归一化姿态数据
+
+# 推理设置
+inference:
+  # 检测参数
+  detection:
+    confidence_threshold: 0.5  # 置信度阈值，可根据需求调整
+    nms_threshold: 0.45  # 非极大值抑制阈值
+    max_detections: 100  # 每图像最大检测数量
+    
+  # 分割参数
+  segmentation:
+    threshold: 0.5  # 分割概率阈值
+    resize_output: true  # 输出调整回输入图像原始大小
+    
+  # 批量处理
+  batch_processing:
+    enabled: true  # 启用批量处理
+    batch_size: 8  # 批量推理大小
+    
+  # 性能优化
+  performance:
+    use_tensorrt: false  # 是否使用TensorRT加速推理
+    use_onnx_runtime: false  # 是否使用ONNX Runtime
+    profile: false  # 启用性能分析
+
+# 评估设置
+evaluation:
+  enabled: true  # 启用评估
+  
+  # 检测评估指标
+  detection:
+    iou_thresholds: [0.5, 0.75]  # 计算AP50和AP75
+    compute_metrics: true  # 计算评估指标
+    save_results: true  # 保存检测结果
+    results_dir: "./results/detection"  # 结果保存目录
+    
+  # 分割评估指标
+  segmentation:
+    compute_metrics: true  # 计算分割指标
+    ignore_index: -1  # 忽略的标签索引
+    save_results: true  # 保存分割结果
+    results_dir: "./results/segmentation"  # 结果保存目录
+    
+  # 评估结果汇总
+  save_json: true  # 保存为JSON格式
+  json_path: "./results/evaluation_results.json"  # JSON保存路径
+
+# 可视化设置
+visualization:
+  enabled: true  # 启用可视化
+  
+  # 文件保存
+  save_dir: "./visualizations/inference"  # 可视化结果保存目录
+  save_format: "png"  # 支持 "png", "jpg", "pdf" 等格式
+  
+  # 显示选项
+  show_boxes: true  # 显示边界框
+  show_masks: true  # 显示分割掩码
+  show_scores: true  # 显示置信度分数
+  show_labels: true  # 显示类别标签
+  show_attitude: true  # 显示姿态信息
+  
+  # 显示样式
+  box_thickness: 2  # 边界框线宽
+  mask_alpha: 0.4  # 分割掩码透明度
+  font_size: 10  # 标签字体大小
+  
+  # 类别颜色
+  color_map:
+    use_custom: true  # 使用自定义颜色
+    colors:  # BGR格式的颜色
+      - [0, 0, 255]    # 红色
+      - [0, 255, 0]    # 绿色
+      - [255, 0, 0]    # 蓝色
+      - [0, 255, 255]  # 青色
+      - [255, 0, 255]  # 洋红色
+      - [255, 255, 0]  # 黄色
+      - [128, 0, 0]    # 深红色
+      - [0, 128, 0]    # 深绿色
+
+# 批量推理配置
+batch_inference:
+  input_dir: "./input_images"
+  output_dir: "./output_results"
+  
+  # 文件格式配置
+  file_patterns:
+    - "*.jpg"
+    - "*.jpeg"
+    - "*.png"
+    - "*.bmp"
+  
+  # 递归处理子目录
+  recursive: false
+  
+  # 输出格式配置
+  save_images: true
+  save_json: true
+  save_xml: false  # PASCAL VOC格式
+  save_txt: false  # YOLO格式
+
+# 导出配置
+export:
+  enabled: false
+  
+  # ONNX导出
+  onnx:
+    export_path: "./exported_models/uesdnet.onnx"
+    opset_version: 11
+    dynamic_axes: true
+    
+  # TensorRT导出
+  tensorrt:
+    export_path: "./exported_models/uesdnet.trt"
+    precision: "fp32"  # "fp32", "fp16", "int8"
+    workspace_size: 2  # GB
+    
+  # TorchScript导出
+  torchscript:
+    export_path: "./exported_models/uesdnet_script.pt"
+    method: "trace"  # "trace" 或 "script"
+
+# 日志配置
+logging:
+  level: "INFO"
+  log_file: "./logs/inference.log"
+  console: true
+  file: true

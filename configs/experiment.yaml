@@ -1,0 +1,145 @@
+# UESDNet 实验配置
+# 基于base.yaml的扩展配置，用于特定实验
+# 作者: qzf
+# 继承基础配置
+_base_: ./base.yaml
+
+# 覆盖特定配置项
+data:
+  dataset:
+    root_dir: "./data/studataset"
+    train_split: "train.txt"
+    val_split: "val.txt"
+    test_split: "test.txt"
+  
+  loader:
+    batch_size: 8  # 调整为适合你的GPU内存
+    num_workers: 8  # 调整为你的CPU核心数
+
+# 训练配置覆盖
+training:
+  # 优化器调整
+  learning_rate: 0.0002
+  weight_decay: 0.0001
+  
+  # 训练周期调整
+  total_epochs: 120
+  
+  # 分阶段训练调整
+  phases:
+    - phase_name: "backbone_frozen"
+      start_epoch: 0
+      end_epoch: 40  # 延长第一阶段
+      freeze_backbone: true
+      loss_weights:
+        detection: 1.0
+        segmentation: 0.8  # 先降低分割权重
+        expert_sync: 0.05
+      
+    - phase_name: "neck_frozen"
+      start_epoch: 40
+      end_epoch: 80
+      freeze_backbone: false
+      freeze_neck: true
+      loss_weights:
+        detection: 1.0
+        segmentation: 1.0
+        expert_sync: 0.1
+      learning_rate: 0.00005
+      
+    - phase_name: "all_unfrozen"
+      start_epoch: 80
+      end_epoch: 120
+      freeze_backbone: false
+      freeze_neck: false
+      loss_weights:
+        detection: 1.0
+        segmentation: 1.2  # 提高分割权重
+        expert_sync: 0.15  # 增加专家同步权重
+      learning_rate: 0.00001
+  
+  # 输出目录调整
+  output_dir: "./outputs/uesdnet_experiment_001"
+  
+  # 启用自动混合精度
+  amp: true
+  
+  # 梯度累积
+  gradient_accumulation_steps: 1
+
+# 模型配置微调
+model:
+  # 主干网络设置
+  backbone:
+    pretrained: true
+    use_attitude_attention: true  # 使用姿态注意力机制增强特征提取
+    
+  # 特征融合Neck
+  neck:
+    fusion_channels: 512  # 增加融合通道数以提升特征表示能力
+    use_cross_scale: true  # 启用跨尺度特征交互
+    
+  # 启用ExpertSync
+  use_expertsync: true  # 开启专家同步机制提升多任务学习效果
+
+# ExpertSync模块配置
+expertsync:
+  num_experts: 3  # 配置3个专家网络(2个特定任务专家+1个通用专家)
+  
+  distillation:
+    temperature: 5.0
+    weight: 0.6
+    
+  coordination:
+    weight: 0.15
+
+# 评估参数设置
+evaluation:
+  eval_interval: 2  # 每2个epoch评估一次，更频繁地监控性能
+  
+  detection:
+    iou_thresholds: [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95]  # 更密集的IoU阈值
+    
+  best_metric: "detection_mAP"  # 使用检测mAP作为最佳模型指标
+
+# 数据增强策略
+data:
+  transforms:
+    train:
+      resize: [1024, 1024]
+      random_flip: true
+      random_rotate: true
+      rotate_angle: 15  # 适度增加旋转角度提升鲁棒性
+      random_scale: true
+      scale_range: [0.7, 1.3]  # 扩大缩放范围增强泛化能力
+      color_jitter: true
+      brightness: 0.3
+      contrast: 0.3
+      saturation: 0.3
+      random_crop: true
+      crop_size: [800, 800]
+      blur: true
+      blur_prob: 0.1  # 小概率添加模糊效果模拟真实场景
+
+# 推理参数设置
+inference:
+  confidence_threshold: 0.4  # 适当降低置信度阈值以提高召回率
+  nms_threshold: 0.4  # 非极大值抑制阈值
+  
+  visualize:
+    enabled: true
+    save_dir: "./visualizations/experiment_001"
+    show_attitude: true  # 显示姿态信息
+
+# 日志记录设置
+training:
+  log_dir: "./logs/uesdnet_experiment_001"
+  log_interval: 5  # 每5个batch记录一次训练日志
+  tensorboard: true  # 启用TensorBoard可视化训练过程
+  wandb: false  # 是否使用Weights & Biases平台
+  
+# 模型检查点设置
+training:
+  save_interval: 5  # 每5个epoch保存一次检查点
+  save_best_only: false  # 保存所有检查点而非仅最佳模型
+  max_checkpoints: 10  # 最多保留10个检查点避免磁盘占用过大
